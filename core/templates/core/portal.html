@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VIKMO DealerDesk Portal</title>
+  <title>VIKMO DealerDesk</title>
   <style>
     :root {
       --bg: #0f172a;
       --panel: #1e293b;
+      --panel-alt: #162032;
       --border: #334155;
       --accent: #facc15;
-      --accent-dark: #ca8a04;
       --text: #f8fafc;
       --muted: #94a3b8;
       --danger: #ef4444;
@@ -20,100 +20,143 @@
     body { margin: 0; background: var(--bg); color: var(--text); }
     header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 24px; background: #020617; border-bottom: 1px solid var(--border);
+      padding: 12px 24px; background: #020617; border-bottom: 1px solid var(--border);
+      gap: 16px; flex-wrap: wrap;
     }
-    .brand { font-size: 1.25rem; font-weight: 800; color: var(--accent); letter-spacing: 0.5px; }
-    .tabs { display: flex; gap: 8px; }
+    .header-left { display: flex; align-items: center; gap: 24px; }
+    .brand { font-size: 1.2rem; font-weight: 800; color: var(--accent); letter-spacing: 0.4px; }
+    .tabs { display: flex; gap: 6px; }
     .tab-btn {
-      padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
-      background: var(--panel); color: var(--text); cursor: pointer; font-weight: 600;
+      padding: 7px 14px; border-radius: 6px; border: 1px solid transparent;
+      background: transparent; color: var(--muted); cursor: pointer; font-weight: 600;
     }
-    .tab-btn.active { background: var(--accent); color: #020617; border-color: var(--accent); }
-    main { max-width: 1280px; margin: 20px auto; padding: 0 20px; }
+    .tab-btn:hover { color: var(--text); background: var(--panel); }
+    .tab-btn.active { background: var(--panel); color: var(--accent); border-color: var(--border); }
+    .account-bar {
+      display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--muted);
+    }
+    main { max-width: 1240px; margin: 20px auto; padding: 0 20px; }
     .section { display: none; }
     .section.active { display: block; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
+    @media (max-width: 920px) { .grid-2 { grid-template-columns: 1fr; } }
     .card {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 10px; padding: 18px; margin-bottom: 18px;
     }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .card h3 { margin: 0 0 14px 0; font-size: 1.05rem; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
     input, select, button {
       padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);
-      background: #0f172a; color: var(--text); font-size: 0.9rem;
+      background: #0f172a; color: var(--text); font-size: 0.88rem;
     }
     button.primary { background: var(--accent); color: #020617; font-weight: 700; border: none; cursor: pointer; }
     button.secondary { background: #334155; color: var(--text); border: none; cursor: pointer; }
-    button.danger { background: var(--danger); color: #fff; border: none; cursor: pointer; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-weight: 600; }
-    .badge { padding: 3px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 700; background: #334155; }
+    button.danger { background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid var(--danger); cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.4px; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover { background: var(--panel-alt); }
+    .badge { padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; background: #334155; }
+    .badge.DRAFT { background: #1e3a8a; color: #93c5fd; }
+    .badge.CONFIRMED { background: #14532d; color: #86efac; }
+    .badge.DISPATCHED { background: #713f12; color: #fde047; }
+    .badge.DELIVERED { background: #065f46; color: #6ee7b7; }
+    .badge.CANCELLED { background: #450a0a; color: #fca5a5; }
     .error-banner {
-      background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger);
-      color: #fca5a5; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; display: none;
+      background: rgba(239, 68, 68, 0.14); border: 1px solid var(--danger);
+      color: #fca5a5; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; display: none;
     }
-    .chat-box { height: 340px; overflow-y: auto; padding: 12px; background: #020617; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; }
-    .msg { margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; max-width: 85%; white-space: pre-wrap; }
-    .msg.user { background: #1d4ed8; margin-left: auto; }
-    .msg.bot { background: #1e293b; border: 1px solid var(--border); }
-    .meta { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+    .chat-box {
+      height: 400px; overflow-y: auto; padding: 16px; background: #020617;
+      border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .msg { padding: 10px 14px; border-radius: 8px; max-width: 78%; line-height: 1.45; white-space: pre-wrap; font-size: 0.9rem; }
+    .msg.user { background: #1d4ed8; align-self: flex-end; }
+    .msg.bot { background: var(--panel); border: 1px solid var(--border); align-self: flex-start; }
+    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      font-size: 0.76rem; padding: 3px 8px; border-radius: 4px;
+      background: #0f172a; border: 1px solid var(--border); color: var(--accent); cursor: pointer;
+    }
+    .cart-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.88rem;
+    }
+    .muted { color: var(--muted); font-size: 0.84rem; }
+    .subrow { background: #0b1324; }
   </style>
 </head>
 <body>
   <header>
-    <div class="brand">VIKMO DealerDesk</div>
-    <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('catalogue', this)">1. Catalogue & Cart</button>
-      <button class="tab-btn" onclick="switchTab('orders', this)">2. Orders & GST</button>
-      <button class="tab-btn" onclick="switchTab('assistant', this)">3. AI Dealer Assistant</button>
-      <button class="tab-btn" onclick="switchTab('reorder', this)">4. ML Forecast & Reorder</button>
+    <div class="header-left">
+      <div class="brand">VIKMO DealerDesk</div>
+      <nav class="tabs">
+        <button class="tab-btn active" onclick="switchTab('catalogue', this)">Catalogue</button>
+        <button class="tab-btn" onclick="switchTab('orders', this)">Orders</button>
+        <button class="tab-btn" onclick="switchTab('assistant', this)">Assistant</button>
+        <button class="tab-btn" onclick="switchTab('replenishment', this)">Inventory & Replenishment</button>
+      </nav>
+    </div>
+    <div class="account-bar">
+      <span>Active Dealer:</span>
+      <select id="dealer-select" onchange="onDealerChange()"></select>
     </div>
   </header>
 
   <main>
     <div id="global-error" class="error-banner"></div>
 
-    <!-- 1. Catalogue & Cart -->
+    <!-- Catalogue & Cart -->
     <div id="tab-catalogue" class="section active">
-      <div class="card">
-        <h3>Draft Order Cart</h3>
-        <div class="row">
-          <label>Dealer:</label>
-          <select id="dealer-select"></select>
-          <button class="primary" onclick="submitDraftOrder()">Create DRAFT Order</button>
-          <span id="cart-summary" style="color: var(--muted);">Cart is empty</span>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Spare Parts Catalogue</h3>
+          <div class="row">
+            <input id="search-input" style="flex:1;" placeholder="Filter by part name, SKU, or brand..." oninput="scheduleProductLoad()" />
+            <input id="vehicle-input" placeholder="Vehicle model (e.g. Pulsar 150)" oninput="scheduleProductLoad()" />
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th><th>Part Name</th><th>Brand</th><th>Fitment</th><th>Unit Price</th><th>Availability</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="products-tbody"></tbody>
+          </table>
         </div>
-      </div>
 
-      <div class="card">
-        <h3>Products Catalogue & Live Inventory</h3>
-        <div class="row">
-          <input id="search-input" placeholder="Search SKU, name, brand..." oninput="loadProducts()" />
-          <input id="vehicle-input" placeholder="Vehicle filter (e.g. Pulsar 150)" oninput="loadProducts()" />
-          <button class="secondary" onclick="loadProducts()">Search</button>
+        <div class="card">
+          <h3>Current Draft Cart</h3>
+          <div id="cart-list" class="muted">No items added yet.</div>
+          <div style="margin-top: 14px;">
+            <button id="create-order-btn" class="primary" style="width:100%;" onclick="submitDraftOrder()" disabled>Save as Draft Order</button>
+          </div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>SKU</th><th>Name</th><th>Brand</th><th>Vehicle Fitment</th><th>Price (₹)</th><th>Live Stock</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="products-tbody"></tbody>
-        </table>
       </div>
     </div>
 
-    <!-- 2. Orders -->
+    <!-- Orders -->
     <div id="tab-orders" class="section">
       <div class="card">
         <div class="row" style="justify-content: space-between;">
-          <h3>Orders Lifecycle (DRAFT → CONFIRMED → DISPATCHED → DELIVERED)</h3>
-          <button class="secondary" onclick="loadOrders()">Refresh Orders</button>
+          <h3>Dealer Orders</h3>
+          <select id="order-status-filter" onchange="loadOrders()">
+            <option value="">All Statuses</option>
+            <option value="DRAFT">Draft</option>
+            <option value="CONFIRMED">Confirmed</option>
+            <option value="DISPATCHED">Dispatched</option>
+            <option value="DELIVERED">Delivered</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Order #</th><th>Dealer ID</th><th>Status</th><th>Subtotal</th><th>GST (18%)</th><th>Grand Total</th><th>Items</th><th>Actions</th>
+              <th>Order #</th><th>Status</th><th>Subtotal</th><th>GST (18%)</th><th>Grand Total</th><th>Line Items</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="orders-tbody"></tbody>
@@ -121,35 +164,41 @@
       </div>
     </div>
 
-    <!-- 3. Assistant -->
+    <!-- Assistant -->
     <div id="tab-assistant" class="section">
       <div class="card">
-        <h3>AI Dealer Assistant (Tool-Calling: search_parts, check_stock, create_draft_order)</h3>
-        <div class="row">
-          <label>Session ID:</label>
-          <input id="chat-session" value="portal-session-1" />
-          <label>Dealer ID:</label>
-          <input id="chat-dealer" type="number" value="1" style="width:80px;" />
+        <div class="row" style="justify-content: space-between;">
+          <h3>Parts & Ordering Assistant</h3>
+          <button class="secondary" onclick="resetChatSession()">New Conversation</button>
         </div>
-        <div id="chat-box" class="chat-box"></div>
-        <div class="row">
-          <input id="chat-input" style="flex:1;" placeholder="Ask e.g. 'Do you have brake pads for a Pulsar 150?' or 'Create a draft order for 3 units'" onkeydown="if(event.key==='Enter') sendChat()" />
-          <button class="primary" onclick="sendChat()">Send</button>
+        <div id="chat-box" class="chat-box">
+          <div class="msg bot">Hello! Ask me about part availability, vehicle fitment, or placing a draft order.</div>
+        </div>
+        <div class="row" style="margin-bottom:0;">
+          <input id="chat-input" style="flex:1;" placeholder="Ask about parts, stock, or draft orders..." onkeydown="if(event.key==='Enter') sendChat()" />
+          <button id="chat-send-btn" class="primary" onclick="sendChat()">Send</button>
         </div>
       </div>
     </div>
 
-    <!-- 4. Forecast & Reorder -->
-    <div id="tab-reorder" class="section">
+    <!-- Inventory & Replenishment -->
+    <div id="tab-replenishment" class="section">
       <div class="card">
-        <div class="row" style="justify-content: space-between;">
-          <h3>ML Demand Forecast & Live Safety-Stock Reorder Suggestions (40 SKUs)</h3>
-          <button class="secondary" onclick="loadReorder()">Refresh Live Stock & Reorder</button>
+        <h3>Stock Adjustment</h3>
+        <div class="row" style="margin-bottom:0;">
+          <input id="adj-sku" placeholder="SKU (e.g. BRK-1044)" style="width:160px;" />
+          <input id="adj-qty" type="number" min="0" placeholder="New quantity" style="width:140px;" />
+          <input id="adj-reason" placeholder="Reason (e.g. cycle count)" style="flex:1;" />
+          <button class="primary" onclick="submitStockAdjustment()">Update Stock</button>
         </div>
+      </div>
+
+      <div class="card">
+        <h3>Replenishment Suggestions <span class="muted" style="font-weight:400;">(Click any row to expand 4-week demand forecast)</span></h3>
         <table>
           <thead>
             <tr>
-              <th>SKU</th><th>Live Stock</th><th>Lead Time (Wks)</th><th>Lead-Time Demand</th><th>Safety Stock</th><th>Reorder Point</th><th>Suggested Reorder Qty</th><th>4-Week Forecast</th>
+              <th>SKU</th><th>Available Stock</th><th>Lead Time</th><th>Lead-Time Demand</th><th>Safety Stock</th><th>Reorder Point</th><th>Suggested Order</th>
             </tr>
           </thead>
           <tbody id="reorder-tbody"></tbody>
@@ -160,6 +209,37 @@
 
   <script>
     let cart = {};
+    let searchTimer = null;
+    let expandedForecasts = {};
+    let sessionByDealer = {};
+
+    function activeDealerId() {
+      const val = document.getElementById('dealer-select').value;
+      return val ? parseInt(val, 10) : 1;
+    }
+
+    function activeSessionId() {
+      const dId = activeDealerId();
+      if (!sessionByDealer[dId]) {
+        sessionByDealer[dId] = 'sess-' + dId + '-' + Math.random().toString(36).slice(2, 8);
+      }
+      return sessionByDealer[dId];
+    }
+
+    function resetChatSession() {
+      const dId = activeDealerId();
+      sessionByDealer[dId] = 'sess-' + dId + '-' + Math.random().toString(36).slice(2, 8);
+      document.getElementById('chat-box').innerHTML =
+        '<div class="msg bot">Started a new conversation. How can I help with your order today?</div>';
+    }
+
+    function onDealerChange() {
+      cart = {};
+      renderCart();
+      if (document.getElementById('tab-orders').classList.contains('active')) {
+        loadOrders();
+      }
+    }
 
     function showError(msg) {
       const el = document.getElementById('global-error');
@@ -173,21 +253,29 @@
       document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.getElementById('tab-' + name).classList.add('active');
-      btn.classList.add('active');
+      if (btn) btn.classList.add('active');
+      if (name === 'catalogue') loadProducts();
       if (name === 'orders') loadOrders();
-      if (name === 'reorder') loadReorder();
+      if (name === 'replenishment') loadReorder();
+    }
+
+    function scheduleProductLoad() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(loadProducts, 180);
     }
 
     async function loadDealers() {
       const r = await fetch('/api/dealers/?page_size=50');
       const data = await r.json();
       const sel = document.getElementById('dealer-select');
-      sel.innerHTML = (data.results || []).map(d => `<option value="${d.id}">${d.dealer_code} — ${d.name} (${d.city})</option>`).join('');
+      sel.innerHTML = (data.results || []).map(d =>
+        `<option value="${d.id}">${d.name} (${d.dealer_code} · ${d.city})</option>`
+      ).join('');
     }
 
     async function loadProducts() {
-      const s = encodeURIComponent(document.getElementById('search-input').value);
-      const v = encodeURIComponent(document.getElementById('vehicle-input').value);
+      const s = encodeURIComponent(document.getElementById('search-input').value.trim());
+      const v = encodeURIComponent(document.getElementById('vehicle-input').value.trim());
       const r = await fetch(`/api/products/?search=${s}&vehicle=${v}&page_size=25`);
       const data = await r.json();
       const tbody = document.getElementById('products-tbody');
@@ -198,73 +286,94 @@
           <td>${p.brand}</td>
           <td>${p.vehicle_fitment}</td>
           <td>₹${p.price}</td>
+          <td>${p.stock > 0 ? `${p.stock} in stock` : '<span style="color:#fca5a5;">Out of stock</span>'}</td>
           <td>
-            <input type="number" min="0" value="${p.stock}" style="width:75px;" onchange="updateStock('${p.sku}', this.value)" />
-          </td>
-          <td>
-            <button class="primary" onclick="addToCart('${p.sku}')">+ Add to Cart</button>
+            <button class="secondary" onclick="addToCart('${p.sku}', '${p.name.replace(/'/g, "\\'")}', '${p.price}')">Add</button>
           </td>
         </tr>
       `).join('');
     }
 
-    async function updateStock(sku, val) {
-      showError('');
-      const r = await fetch(`/api/inventory/${sku}/`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({quantity: parseInt(val, 10), reason: 'portal adjustment'})
-      });
-      if (!r.ok) {
-        const err = await r.json();
-        showError(err.error ? `${err.error.code}: ${err.error.message}` : 'Failed to update stock');
-      }
-      loadProducts();
+    function addToCart(sku, name, price) {
+      if (!cart[sku]) cart[sku] = { name, price, quantity: 0 };
+      cart[sku].quantity += 1;
+      renderCart();
     }
 
-    function addToCart(sku) {
-      cart[sku] = (cart[sku] || 0) + 1;
-      const entries = Object.entries(cart).map(([k, q]) => `${k} × ${q}`);
-      document.getElementById('cart-summary').textContent = entries.length ? entries.join(', ') : 'Cart is empty';
+    function updateCartQty(sku, delta) {
+      if (!cart[sku]) return;
+      cart[sku].quantity += delta;
+      if (cart[sku].quantity <= 0) delete cart[sku];
+      renderCart();
+    }
+
+    function renderCart() {
+      const el = document.getElementById('cart-list');
+      const btn = document.getElementById('create-order-btn');
+      const entries = Object.entries(cart);
+      if (!entries.length) {
+        el.innerHTML = '<span class="muted">No items added yet.</span>';
+        btn.disabled = true;
+        return;
+      }
+      btn.disabled = false;
+      el.innerHTML = entries.map(([sku, info]) => `
+        <div class="cart-item">
+          <div>
+            <strong>${sku}</strong> × ${info.quantity}
+            <div class="muted">${info.name}</div>
+          </div>
+          <div style="display:flex; gap:4px;">
+            <button class="secondary" onclick="updateCartQty('${sku}', -1)">−</button>
+            <button class="secondary" onclick="updateCartQty('${sku}', 1)">+</button>
+          </div>
+        </div>
+      `).join('');
     }
 
     async function submitDraftOrder() {
       showError('');
-      const items = Object.entries(cart).map(([sku, quantity]) => ({sku, quantity}));
-      if (!items.length) { showError('Add at least one product to the cart first.'); return; }
-      const dealer_id = parseInt(document.getElementById('dealer-select').value, 10);
+      const items = Object.entries(cart).map(([sku, info]) => ({ sku, quantity: info.quantity }));
+      if (!items.length) return;
       const r = await fetch('/api/orders/', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({dealer_id, items})
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dealer_id: activeDealerId(), items })
       });
       const body = await r.json();
       if (!r.ok) {
-        showError(`${body.error.code}: ${body.error.message}`);
+        showError(body.error ? body.error.message : 'Unable to create order');
         return;
       }
       cart = {};
-      document.getElementById('cart-summary').textContent = `Created ${body.order_number} (DRAFT)`;
-      document.querySelectorAll('.tab-btn')[1].click();
+      renderCart();
+      switchTab('orders', document.querySelectorAll('.tab-btn')[1]);
     }
 
     async function loadOrders() {
-      const r = await fetch('/api/orders/?page_size=25');
+      const status = document.getElementById('order-status-filter').value;
+      const qs = new URLSearchParams({ dealer_id: activeDealerId(), page_size: 25 });
+      if (status) qs.set('status', status);
+      const r = await fetch(`/api/orders/?${qs.toString()}`);
       const data = await r.json();
       const tbody = document.getElementById('orders-tbody');
-      tbody.innerHTML = (data.results || []).map(o => `
+      const rows = data.results || [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="muted">No orders found for this dealer.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(o => `
         <tr>
           <td><strong>${o.order_number}</strong></td>
-          <td>#${o.dealer_id}</td>
-          <td><span class="badge">${o.status}</span></td>
+          <td><span class="badge ${o.status}">${o.status}</span></td>
           <td>₹${o.subtotal}</td>
           <td>₹${o.tax_total}</td>
           <td><strong>₹${o.grand_total}</strong></td>
-          <td>${(o.items || []).map(i => `${i.sku} × ${i.quantity} (₹${i.line_total})`).join('<br/>')}</td>
-          <td>
+          <td>${(o.items || []).map(i => `${i.sku} × ${i.quantity} <span class="muted">(₹${i.line_total} incl. ₹${i.line_tax} GST)</span>`).join('<br/>')}</td>
+          <td style="display:flex; gap:6px; flex-wrap:wrap;">
             ${o.status === 'DRAFT' ? `<button class="primary" onclick="orderAction('${o.order_number}', 'confirm')">Confirm</button>` : ''}
-            ${o.status === 'CONFIRMED' ? `<button class="primary" onclick="orderAction('${o.order_number}', 'dispatch')">Dispatch</button>` : ''}
-            ${o.status === 'DISPATCHED' ? `<button class="primary" onclick="orderAction('${o.order_number}', 'deliver')">Deliver</button>` : ''}
+            ${o.status === 'CONFIRMED' ? `<button class="secondary" onclick="orderAction('${o.order_number}', 'dispatch')">Dispatch</button>` : ''}
+            ${o.status === 'DISPATCHED' ? `<button class="secondary" onclick="orderAction('${o.order_number}', 'deliver')">Mark Delivered</button>` : ''}
             ${(o.status === 'DRAFT' || o.status === 'CONFIRMED') ? `<button class="danger" onclick="orderAction('${o.order_number}', 'cancel')">Cancel</button>` : ''}
           </td>
         </tr>
@@ -273,43 +382,97 @@
 
     async function orderAction(orderNo, action) {
       showError('');
-      const r = await fetch(`/api/orders/${orderNo}/${action}/`, {method: 'POST'});
+      const r = await fetch(`/api/orders/${orderNo}/${action}/`, { method: 'POST' });
       const body = await r.json();
       if (!r.ok) {
-        showError(`${body.error.code}: ${body.error.message}`);
+        showError(body.error ? body.error.message : 'Action failed');
       }
       loadOrders();
-      loadProducts();
     }
 
     async function sendChat() {
       const input = document.getElementById('chat-input');
+      const btn = document.getElementById('chat-send-btn');
       const message = input.value.trim();
       if (!message) return;
       input.value = '';
+      btn.disabled = true;
+
       const box = document.getElementById('chat-box');
-      box.innerHTML += `<div class="msg user">${message}</div>`;
+      const userDiv = document.createElement('div');
+      userDiv.className = 'msg user';
+      userDiv.textContent = message;
+      box.appendChild(userDiv);
       box.scrollTop = box.scrollHeight;
 
-      const session_id = document.getElementById('chat-session').value;
-      const dealer_id = parseInt(document.getElementById('chat-dealer').value, 10);
-      const r = await fetch('/api/assistant/chat/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({session_id, dealer_id, message})
+      try {
+        const r = await fetch('/api/assistant/chat/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: activeSessionId(),
+            dealer_id: activeDealerId(),
+            message
+          })
+        });
+        const body = await r.json();
+        const botDiv = document.createElement('div');
+        botDiv.className = 'msg bot';
+        if (!r.ok) {
+          botDiv.textContent = body.error ? body.error.message : 'Unable to process message.';
+        } else {
+          botDiv.textContent = body.reply;
+          const chips = document.createElement('div');
+          chips.className = 'chip-row';
+          (body.cited_skus || []).forEach(sku => {
+            const c = document.createElement('span');
+            c.className = 'chip';
+            c.textContent = `View ${sku} in Catalogue`;
+            c.onclick = () => {
+              document.getElementById('search-input').value = sku;
+              switchTab('catalogue', document.querySelectorAll('.tab-btn')[0]);
+            };
+            chips.appendChild(c);
+          });
+          (body.actions || []).forEach(act => {
+            if (act.order_number) {
+              const c = document.createElement('span');
+              c.className = 'chip';
+              c.textContent = `Open Order ${act.order_number}`;
+              c.onclick = () => switchTab('orders', document.querySelectorAll('.tab-btn')[1]);
+              chips.appendChild(c);
+            }
+          });
+          if (chips.children.length) botDiv.appendChild(chips);
+        }
+        box.appendChild(botDiv);
+        box.scrollTop = box.scrollHeight;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function submitStockAdjustment() {
+      showError('');
+      const sku = document.getElementById('adj-sku').value.trim().toUpperCase();
+      const qty = parseInt(document.getElementById('adj-qty').value, 10);
+      const reason = document.getElementById('adj-reason').value.trim() || 'inventory update';
+      if (!sku || isNaN(qty)) {
+        showError('Enter a valid SKU and quantity.');
+        return;
+      }
+      const r = await fetch(`/api/inventory/${encodeURIComponent(sku)}/`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: qty, reason })
       });
       const body = await r.json();
       if (!r.ok) {
-        box.innerHTML += `<div class="msg bot" style="color:#fca5a5;">Error: ${body.error ? body.error.message : 'Request failed'}</div>`;
+        showError(body.error ? body.error.message : 'Stock update failed');
         return;
       }
-      const tools = (body.tool_calls || []).map(t => `${t.name}(${JSON.stringify(t.arguments)})`).join(' → ');
-      const actions = (body.actions || []).map(a => `${a.type}: ${a.order_number}`).join(', ');
-      box.innerHTML += `
-        <div class="msg bot">${body.reply}
-          <div class="meta">Cited SKUs: [${(body.cited_skus || []).join(', ')}] | Tools: ${tools || 'none'} ${actions ? '| Actions: ' + actions : ''}</div>
-        </div>`;
-      box.scrollTop = box.scrollHeight;
+      document.getElementById('adj-qty').value = '';
+      loadReorder();
     }
 
     async function loadReorder() {
@@ -317,27 +480,43 @@
       const data = await r.json();
       const tbody = document.getElementById('reorder-tbody');
       tbody.innerHTML = (data.results || []).map(row => `
-        <tr>
+        <tr class="clickable" onclick="toggleForecastRow('${row.sku}')">
           <td><strong>${row.sku}</strong></td>
           <td>${row.current_stock}</td>
-          <td>${row.lead_time_weeks}</td>
+          <td>${row.lead_time_weeks} wk${row.lead_time_weeks > 1 ? 's' : ''}</td>
           <td>${row.lead_time_demand}</td>
           <td>${row.safety_stock}</td>
           <td>${row.reorder_point}</td>
-          <td style="color:${row.reorder_qty > 0 ? '#facc15' : '#22c55e'}; font-weight:700;">${row.reorder_qty}</td>
-          <td><button class="secondary" onclick="showSkuForecast('${row.sku}', this)">View 4W</button></td>
+          <td style="color:${row.reorder_qty > 0 ? '#facc15' : '#22c55e'}; font-weight:700;">
+            ${row.reorder_qty > 0 ? row.reorder_qty + ' units' : 'Sufficient'}
+          </td>
+        </tr>
+        <tr id="fc-row-${row.sku}" class="subrow" style="display:none;">
+          <td colspan="7" id="fc-cell-${row.sku}" class="muted">Loading forecast...</td>
         </tr>
       `).join('');
     }
 
-    async function showSkuForecast(sku, btn) {
-      const r = await fetch(`/api/forecast/${sku}/`);
-      const data = await r.json();
-      btn.parentElement.innerHTML = (data.forecast || []).map(f => `${f.week_start}: <strong>${f.forecast_units}</strong>`).join('<br/>');
+    async function toggleForecastRow(sku) {
+      const tr = document.getElementById(`fc-row-${sku}`);
+      const cell = document.getElementById(`fc-cell-${sku}`);
+      if (!tr) return;
+      if (tr.style.display === 'table-row') {
+        tr.style.display = 'none';
+        return;
+      }
+      tr.style.display = 'table-row';
+      if (!expandedForecasts[sku]) {
+        const r = await fetch(`/api/forecast/${sku}/`);
+        const data = await r.json();
+        expandedForecasts[sku] = (data.forecast || []).map(w =>
+          `<span style="margin-right:18px;">${w.week_start}: <strong style="color:#f8fafc;">${w.forecast_units} units</strong></span>`
+        ).join('');
+      }
+      cell.innerHTML = `<strong style="color:#94a3b8; margin-right:12px;">4-Week Forecast:</strong> ${expandedForecasts[sku]}`;
     }
 
-    loadDealers();
-    loadProducts();
+    loadDealers().then(() => loadProducts());
   </script>
 </body>
 </html>
