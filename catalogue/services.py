@@ -58,6 +58,46 @@ def list_products(
     return qs
 
 
+def search_parts(
+    query: str | None = None,
+    vehicle: str | None = None,
+    category: str | None = None,
+    limit: int = 10,
+) -> list[Product]:
+    """
+    Search parts for the Dealer Assistant tool `search_parts`.
+    First delegates to `list_products`; if a plural or multi-word query (e.g. 'brake pads')
+    returns no exact substring match, falls back to token-level stem matching.
+    """
+    qs = list_products(search=query, category=category, vehicle=vehicle)
+    results = list(qs[:limit])
+    if results or not query:
+        return results
+
+    qs_fallback = Product.objects.all()
+    if category:
+        qs_fallback = qs_fallback.filter(category__iexact=category.strip())
+    if vehicle:
+        for v_tok in vehicle.strip().split():
+            if len(v_tok) >= 2:
+                qs_fallback = qs_fallback.filter(vehicle_fitment__icontains=v_tok)
+
+    tokens = [
+        t.lower().rstrip("s") if len(t) > 3 and t.lower().endswith("s") else t.lower()
+        for t in query.strip().split()
+        if len(t) >= 2
+    ]
+    for tok in tokens:
+        qs_fallback = qs_fallback.filter(
+            Q(sku__icontains=tok)
+            | Q(name__icontains=tok)
+            | Q(brand__icontains=tok)
+            | Q(category__icontains=tok)
+            | Q(vehicle_fitment__icontains=tok)
+        )
+    return list(qs_fallback[:limit])
+
+
 def get_product(sku: str) -> Product:
     """Fetch a single product by SKU or raise 404 NOT_FOUND."""
     try:
