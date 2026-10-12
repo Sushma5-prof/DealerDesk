@@ -25,3 +25,21 @@ class Product(models.Model):
 
     def __str__(self) -> str:
         return f"{self.sku} - {self.name}"
+
+
+class Inventory(models.Model):
+    """
+    Audit log and inventory adjustment record linked to Product.
+    """
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="inventory_records"
+    )
+    quantity = models.IntegerField(validators=[MinValueValidator(0)])
+    reason = models.CharField(max_length=255, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.product_id}: {self.quantity} ({self.reason})"

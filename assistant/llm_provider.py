@@ -29,7 +29,10 @@ SYSTEM_PROMPT = (
     "4. Politely decline off-topic requests that are unrelated to two-wheeler spare parts, "
     "catalogue search, stock checks, or dealer orders.\n"
     "5. Always mention the exact SKU (e.g. BRK-1044), current price in INR, and available stock "
-    "from the database tool output when recommending or reporting on parts."
+    "from the database tool output when recommending or reporting on parts.\n"
+    "6. When a request is ambiguous — such as asking for a part (e.g. 'brake pads' or 'oil filter') "
+    "without specifying a vehicle model and multiple vehicles match — ask a clarifying question "
+    "to confirm which vehicle model the dealer needs while listing a few matching options."
 )
 
 OPENAI_TOOLS = [
@@ -520,4 +523,15 @@ def _run_deterministic_agent(
             f"- {p['name']} ({p['sku']}) — Brand: {p['brand']}, Fitment: {p['vehicle_fitment']}, "
             f"Price: ₹{p['price']}, Stock: {p['stock']} units"
         )
+    distinct_vehicles = {
+        p["vehicle_fitment"]
+        for p in parts
+        if p.get("vehicle_fitment") and p["vehicle_fitment"].lower() != "universal"
+    }
+    if not vehicle and len(distinct_vehicles) > 1:
+        return (
+            "Which vehicle model do you need this part for? "
+            "Here are a few matching options from our catalogue:\n" + "\n".join(lines)
+        )
     return "Here are the matching parts from our catalogue:\n" + "\n".join(lines)
+

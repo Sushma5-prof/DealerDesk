@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 
 from core.exceptions import DuplicateError, NotFoundError, ValidationError
-from .models import Product
+from .models import Inventory, Product
 
 
 def parse_positive_price(raw_price) -> Decimal:
@@ -193,4 +193,5 @@ def set_inventory(sku: str, quantity, reason: str = "") -> Product:
 
         product.stock = quantity
         product.save(update_fields=["stock"])
+        Inventory.objects.create(product=product, quantity=quantity, reason=reason)
         return product
