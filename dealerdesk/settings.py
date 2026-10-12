@@ -32,7 +32,7 @@ INSTALLED_APPS = [
     "orders",
     "supplier_sync",
     "assistant",
-    # add your apps here
+    "forecast",
 ]
 
 MIDDLEWARE = [

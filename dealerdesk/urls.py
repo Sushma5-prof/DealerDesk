@@ -16,5 +16,5 @@ urlpatterns = [
     # B5: Dealer Assistant
     path("api/", include("assistant.urls")),
     # B6: Forecast + Reorder
-    # path("api/", include("forecast.urls")),
+    path("api/", include("forecast.urls")),
 ]
