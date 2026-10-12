@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "catalogue",
     "dealers",
     "orders",
+    "supplier_sync",
     # add your apps here
 ]
 

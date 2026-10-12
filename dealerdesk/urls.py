@@ -12,7 +12,7 @@ urlpatterns = [
     # B3: Orders
     path("api/", include("orders.urls")),
     # B4: Supplier sync
-    # path("api/", include("supplier_sync.urls")),
+    path("api/", include("supplier_sync.urls")),
     # B5: Dealer Assistant
     # path("api/", include("assistant.urls")),
     # B6: Forecast + Reorder
