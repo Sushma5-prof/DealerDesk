@@ -10,8 +10,12 @@ from core.exceptions import DuplicateError, NotFoundError, ValidationError
 from .models import Inventory, Product
 
 
+MAX_PRICE = Decimal("9999999999.99")
+MAX_INT32 = 2_147_483_647
+
+
 def parse_positive_price(raw_price) -> Decimal:
-    """Validate that price is > 0 and has at most 2 decimal places."""
+    """Validate that price is > 0, fits Decimal(12, 2), and has at most 2 decimal places."""
     if raw_price is None or isinstance(raw_price, bool):
         raise ValidationError("Price is required and must be a valid number.")
     try:
@@ -22,6 +26,8 @@ def parse_positive_price(raw_price) -> Decimal:
 
     if not dec.is_finite() or dec <= Decimal("0"):
         raise ValidationError("Price must be greater than 0.")
+    if dec > MAX_PRICE:
+        raise ValidationError("Price exceeds maximum allowed value.")
 
     # Check at most 2 decimal places
     exponent = dec.as_tuple().exponent
@@ -29,6 +35,28 @@ def parse_positive_price(raw_price) -> Decimal:
         raise ValidationError("Price must have at most 2 decimal places.")
 
     return dec.quantize(Decimal("0.01"))
+
+
+def _validate_field_lengths(
+    sku: str | None = None,
+    name: str | None = None,
+    category: str | None = None,
+    brand: str | None = None,
+    vehicle_fitment: str | None = None,
+    description: str | None = None,
+) -> None:
+    if sku is not None and len(sku) > 64:
+        raise ValidationError("Field 'sku' must be at most 64 characters.")
+    if name is not None and len(name) > 255:
+        raise ValidationError("Field 'name' must be at most 255 characters.")
+    if category is not None and len(category) > 128:
+        raise ValidationError("Field 'category' must be at most 128 characters.")
+    if brand is not None and len(brand) > 128:
+        raise ValidationError("Field 'brand' must be at most 128 characters.")
+    if vehicle_fitment is not None and len(vehicle_fitment) > 255:
+        raise ValidationError("Field 'vehicle_fitment' must be at most 255 characters.")
+    if description is not None and len(description) > 10000:
+        raise ValidationError("Field 'description' must be at most 10000 characters.")
 
 
 def list_products(
@@ -44,15 +72,15 @@ def list_products(
     """
     qs = Product.objects.all()
     if search:
-        s = search.strip()
+        s = search.strip()[:255]
         if s:
             qs = qs.filter(
                 Q(sku__icontains=s) | Q(name__icontains=s) | Q(brand__icontains=s)
             )
     if category is not None and category != "":
-        qs = qs.filter(category=category)
+        qs = qs.filter(category=category[:128])
     if vehicle:
-        v = vehicle.strip()
+        v = vehicle.strip()[:255]
         if v:
             qs = qs.filter(vehicle_fitment__icontains=v)
     return qs
@@ -69,22 +97,30 @@ def search_parts(
     First delegates to `list_products`; if a plural or multi-word query (e.g. 'brake pads')
     returns no exact substring match, falls back to token-level stem matching.
     """
-    qs = list_products(search=query, category=category, vehicle=vehicle)
+    safe_query = (query or "").strip()[:255]
+    safe_vehicle = (vehicle or "").strip()[:255]
+    safe_category = (category or "").strip()[:128]
+
+    qs = list_products(
+        search=safe_query or None,
+        category=safe_category or None,
+        vehicle=safe_vehicle or None,
+    )
     results = list(qs[:limit])
-    if results or not query:
+    if results or not safe_query:
         return results
 
     qs_fallback = Product.objects.all()
-    if category:
-        qs_fallback = qs_fallback.filter(category__iexact=category.strip())
-    if vehicle:
-        for v_tok in vehicle.strip().split():
+    if safe_category:
+        qs_fallback = qs_fallback.filter(category__iexact=safe_category)
+    if safe_vehicle:
+        for v_tok in safe_vehicle.split()[:6]:
             if len(v_tok) >= 2:
                 qs_fallback = qs_fallback.filter(vehicle_fitment__icontains=v_tok)
 
     tokens = [
         t.lower().rstrip("s") if len(t) > 3 and t.lower().endswith("s") else t.lower()
-        for t in query.strip().split()
+        for t in safe_query.split()[:8]
         if len(t) >= 2
     ]
     for tok in tokens:
@@ -116,9 +152,6 @@ def create_product(data: dict) -> Product:
     if not sku:
         raise ValidationError("Field 'sku' is required.")
 
-    if Product.objects.filter(sku=sku).exists():
-        raise DuplicateError(f"Product with SKU '{sku}' already exists.")
-
     name = str(data.get("name") or "").strip()
     category = str(data.get("category") or "").strip()
     brand = str(data.get("brand") or "").strip()
@@ -129,6 +162,18 @@ def create_product(data: dict) -> Product:
         raise ValidationError(
             "Fields 'name', 'category', 'brand', and 'vehicle_fitment' are required."
         )
+
+    _validate_field_lengths(
+        sku=sku,
+        name=name,
+        category=category,
+        brand=brand,
+        vehicle_fitment=vehicle_fitment,
+        description=description,
+    )
+
+    if Product.objects.filter(sku=sku).exists():
+        raise DuplicateError(f"Product with SKU '{sku}' already exists.")
 
     price = parse_positive_price(data.get("price"))
 
@@ -165,12 +210,15 @@ def update_product(sku: str, data: dict) -> Product:
             val = str(data[field] or "").strip()
             if not val:
                 raise ValidationError(f"Field '{field}' cannot be empty.")
+            _validate_field_lengths(**{field: val})
             setattr(product, field, val)
 
     if "description" in data:
         if data["description"] is None:
             raise ValidationError("Field 'description' cannot be null.")
-        product.description = str(data["description"])
+        desc = str(data["description"])
+        _validate_field_lengths(description=desc)
+        product.description = desc
 
     product.save()
     return product
@@ -182,8 +230,9 @@ def set_inventory(sku: str, quantity, reason: str = "") -> Product:
     """
     if quantity is None or isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValidationError("Quantity must be an integer >= 0.")
-    if quantity < 0:
-        raise ValidationError("Quantity must be >= 0.")
+    if quantity < 0 or quantity > MAX_INT32:
+        raise ValidationError(f"Quantity must be between 0 and {MAX_INT32}.")
+    clean_reason = str(reason or "")[:255]
 
     with transaction.atomic():
         try:
@@ -193,5 +242,5 @@ def set_inventory(sku: str, quantity, reason: str = "") -> Product:
 
         product.stock = quantity
         product.save(update_fields=["stock"])
-        Inventory.objects.create(product=product, quantity=quantity, reason=reason)
+        Inventory.objects.create(product=product, quantity=quantity, reason=clean_reason)
         return product

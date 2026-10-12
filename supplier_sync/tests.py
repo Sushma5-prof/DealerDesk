@@ -102,3 +102,35 @@ class SupplierSyncTest(TestCase):
             self.assertEqual(r.status_code, 502)
             self.assertEqual(r.json()["error"]["code"], "SUPPLIER_UNAVAILABLE")
             self.assertEqual(Product.objects.count(), initial_count)
+
+    def test_looping_cursor_and_page_limit_raise_supplier_unavailable(self):
+        from core.exceptions import SupplierUnavailableError
+
+        class LoopingCursorSession:
+            def get(self, url, params=None, headers=None, timeout=15):
+                return FakeResponse(
+                    200,
+                    {
+                        "items": [
+                            {
+                                "supplier_sku": "SUP-1",
+                                "sku": "BRK-9999",
+                                "name": "Loop Item",
+                                "category": "Brakes",
+                                "brand": "Endurance",
+                                "vehicle_fitment": "Universal",
+                                "price": "250.00",
+                                "updated_at": "2026-09-01T00:00:00Z",
+                            }
+                        ],
+                        "next_cursor": "cursor-loop-1",
+                    },
+                    {},
+                )
+
+        initial_count = Product.objects.count()
+        with self.assertRaises(SupplierUnavailableError):
+            run_supplier_sync(
+                session=LoopingCursorSession(), sleep_fn=lambda _: None
+            )
+        self.assertEqual(Product.objects.count(), initial_count)

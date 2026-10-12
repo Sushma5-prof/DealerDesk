@@ -126,3 +126,21 @@ class AssistantAPITest(TestCase):
         )
         self.assertEqual(r_bad.status_code, 400)
         self.assertEqual(r_bad.json()["error"]["code"], "VALIDATION_ERROR")
+
+        # Cross-dealer session reuse -> 400 VALIDATION_ERROR
+        other_dealer = Dealer.objects.create(
+            dealer_code="DLR-008",
+            name="Other Dealer",
+            credit_limit=Decimal("50000.00"),
+        )
+        r_cross = self.client.post(
+            "/api/assistant/chat/",
+            {
+                "session_id": "sess-off",
+                "dealer_id": other_dealer.id,
+                "message": "Hello",
+            },
+            format="json",
+        )
+        self.assertEqual(r_cross.status_code, 400)
+        self.assertEqual(r_cross.json()["error"]["code"], "VALIDATION_ERROR")

@@ -26,6 +26,10 @@ from .models import Order, OrderItem
 
 GST_RATE = Decimal("0.18")
 TWO_PLACES = Decimal("0.01")
+MAX_DAILY_SEQUENCE = 9999
+MAX_INT32 = 2_147_483_647
+MAX_ITEM_QUANTITY = 1_000_000
+MAX_ORDER_AMOUNT = Decimal("999999999999.99")
 
 
 def compute_line_amounts(
@@ -51,7 +55,8 @@ def _next_order_number() -> str:
     """
     Contract §7.5: ORD-YYYYMMDD-NNNN in Asia/Kolkata.
     Uses atomic PostgreSQL upsert on orders_dailysequence so concurrent
-    creations never collide or deadlock.
+    creations never collide or deadlock, and strictly enforces the 4-digit
+    daily sequence boundary (0001..9999).
     """
     today = timezone.localdate()
     with connection.cursor() as cursor:
@@ -66,6 +71,10 @@ def _next_order_number() -> str:
             [today],
         )
         seq = cursor.fetchone()[0]
+    if seq > MAX_DAILY_SEQUENCE:
+        raise ValidationError(
+            f"Daily order sequence limit ({MAX_DAILY_SEQUENCE}) reached for {today.isoformat()}."
+        )
     return f"ORD-{today.strftime('%Y%m%d')}-{seq:04d}"
 
 
@@ -86,6 +95,8 @@ def _advisory_lock_id(key: str) -> int:
 def _validate_items_payload(raw_items) -> list[tuple[Product, int]]:
     if not isinstance(raw_items, list) or len(raw_items) == 0:
         raise ValidationError("Order must contain at least one item.")
+    if len(raw_items) > 500:
+        raise ValidationError("Order cannot contain more than 500 distinct line items.")
 
     seen_skus: set[str] = set()
     parsed: list[tuple[str, int]] = []
@@ -97,12 +108,22 @@ def _validate_items_payload(raw_items) -> list[tuple[Product, int]]:
         qty = entry.get("quantity")
         if not sku:
             raise ValidationError("Item 'sku' is required.")
+        if len(sku) > 64:
+            raise ValidationError("Item 'sku' must be at most 64 characters.")
         if sku in seen_skus:
             raise ValidationError(f"Duplicate SKU '{sku}' in order items.")
         seen_skus.add(sku)
 
-        if qty is None or isinstance(qty, bool) or not isinstance(qty, int) or qty < 1:
-            raise ValidationError(f"Quantity for SKU '{sku}' must be an integer >= 1.")
+        if (
+            qty is None
+            or isinstance(qty, bool)
+            or not isinstance(qty, int)
+            or qty < 1
+            or qty > MAX_ITEM_QUANTITY
+        ):
+            raise ValidationError(
+                f"Quantity for SKU '{sku}' must be an integer between 1 and {MAX_ITEM_QUANTITY}."
+            )
         parsed.append((sku, qty))
 
     products_by_sku = {
@@ -112,7 +133,17 @@ def _validate_items_payload(raw_items) -> list[tuple[Product, int]]:
         missing = sorted(seen_skus - set(products_by_sku.keys()))
         raise ValidationError(f"Unknown SKU(s): {', '.join(missing)}")
 
-    return [(products_by_sku[sku], qty) for sku, qty in parsed]
+    validated: list[tuple[Product, int]] = []
+    running_grand_total = Decimal("0.00")
+    for sku, qty in parsed:
+        prod = products_by_sku[sku]
+        _, _, line_tot = compute_line_amounts(prod.price, qty)
+        running_grand_total += line_tot
+        if line_tot > MAX_ORDER_AMOUNT or running_grand_total > MAX_ORDER_AMOUNT:
+            raise ValidationError("Order amount exceeds maximum allowed total.")
+        validated.append((prod, qty))
+
+    return validated
 
 
 def sync_draft_prices(order: Order) -> Order:
@@ -185,6 +216,8 @@ def create_order(
     Returns (order, created_bool).
     """
     clean_key = (idempotency_key or "").strip() or None
+    if clean_key and len(clean_key) > 255:
+        raise ValidationError("Idempotency-Key must be at most 255 characters.")
     body_hash = _canonical_body_hash(dealer_id, items) if clean_key else None
 
     with transaction.atomic():
@@ -206,7 +239,13 @@ def create_order(
                     )
                 return sync_draft_prices(existing), False
 
-        if dealer_id is None or isinstance(dealer_id, bool) or not isinstance(dealer_id, int):
+        if (
+            dealer_id is None
+            or isinstance(dealer_id, bool)
+            or not isinstance(dealer_id, int)
+            or dealer_id < 1
+            or dealer_id > MAX_INT32
+        ):
             raise ValidationError("Valid 'dealer_id' is required.")
         try:
             dealer = Dealer.objects.get(pk=dealer_id)

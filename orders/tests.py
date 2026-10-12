@@ -182,6 +182,52 @@ class OrdersAPITest(TestCase):
         self.assertEqual(r_can2.status_code, 409)
         self.assertEqual(r_can2.json()["error"]["code"], "INVALID_TRANSITION")
 
+    def test_daily_sequence_boundary_and_extreme_inputs(self):
+        from django.utils import timezone
+        from .models import DailySequence
+
+        today = timezone.localdate()
+        DailySequence.objects.update_or_create(
+            date=today, defaults={"last_seq": 9998}
+        )
+
+        # 9999th order succeeds with 4-digit -9999
+        r_9999 = self.client.post(
+            "/api/orders/",
+            {
+                "dealer_id": self.dealer.id,
+                "items": [{"sku": "BRK-1044", "quantity": 1}],
+            },
+            format="json",
+        )
+        self.assertEqual(r_9999.status_code, 201)
+        self.assertTrue(r_9999.json()["order_number"].endswith("-9999"))
+
+        # 10000th order is rejected with 400 VALIDATION_ERROR and rolls back sequence
+        r_10000 = self.client.post(
+            "/api/orders/",
+            {
+                "dealer_id": self.dealer.id,
+                "items": [{"sku": "BRK-1044", "quantity": 1}],
+            },
+            format="json",
+        )
+        self.assertEqual(r_10000.status_code, 400)
+        self.assertEqual(r_10000.json()["error"]["code"], "VALIDATION_ERROR")
+        self.assertEqual(DailySequence.objects.get(date=today).last_seq, 9999)
+
+        # Extreme quantity -> 400 VALIDATION_ERROR
+        r_huge = self.client.post(
+            "/api/orders/",
+            {
+                "dealer_id": self.dealer.id,
+                "items": [{"sku": "BRK-1044", "quantity": 10_000_000}],
+            },
+            format="json",
+        )
+        self.assertEqual(r_huge.status_code, 400)
+        self.assertEqual(r_huge.json()["error"]["code"], "VALIDATION_ERROR")
+
 
 class OrdersConcurrencyTest(TransactionTestCase):
     def test_concurrent_confirm_never_oversells(self):

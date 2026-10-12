@@ -114,17 +114,21 @@ def run_llm_turn(
     """
     Runs a single turn with the configured LLM provider (Gemini -> OpenAI -> Groq -> Anthropic).
     Executes tool calls via `tool_executor(name, arguments)` and returns the final assistant reply string.
+    Falls back across configured providers and finally to the deterministic tool-calling agent.
     """
     gemini_key = _get_env_or_setting("GEMINI_API_KEY")
     openai_key = _get_env_or_setting("OPENAI_API_KEY")
     groq_key = _get_env_or_setting("GROQ_API_KEY")
     anthropic_key = _get_env_or_setting("ANTHROPIC_API_KEY")
 
-    try:
-        if gemini_key:
-            return _run_gemini(gemini_key, history, user_message, tool_executor)
-        if openai_key:
-            return _run_openai_compatible(
+    providers: list[Callable[[], str]] = []
+    if gemini_key:
+        providers.append(
+            lambda: _run_gemini(gemini_key, history, user_message, tool_executor)
+        )
+    if openai_key:
+        providers.append(
+            lambda: _run_openai_compatible(
                 api_key=openai_key,
                 base_url="https://api.openai.com/v1/chat/completions",
                 model="gpt-4o-mini",
@@ -132,8 +136,10 @@ def run_llm_turn(
                 user_message=user_message,
                 tool_executor=tool_executor,
             )
-        if groq_key:
-            return _run_openai_compatible(
+        )
+    if groq_key:
+        providers.append(
+            lambda: _run_openai_compatible(
                 api_key=groq_key,
                 base_url="https://api.groq.com/openai/v1/chat/completions",
                 model="llama-3.3-70b-versatile",
@@ -141,13 +147,21 @@ def run_llm_turn(
                 user_message=user_message,
                 tool_executor=tool_executor,
             )
-        if anthropic_key:
-            return _run_anthropic(
+        )
+    if anthropic_key:
+        providers.append(
+            lambda: _run_anthropic(
                 anthropic_key, history, user_message, tool_executor
             )
-    except Exception:
-        # Fall back to deterministic tool-calling agent if external API errors out
-        pass
+        )
+
+    for runner in providers:
+        try:
+            reply = runner()
+            if reply and reply.strip():
+                return reply.strip()
+        except Exception:
+            continue
 
     return _run_deterministic_agent(history, user_message, tool_executor)
 
@@ -173,21 +187,21 @@ def _run_gemini(
     ]
     tools = [types.Tool(function_declarations=fn_declarations)]
 
-    contents: list[types.Content] = []
+    base_contents: list[types.Content] = []
     for turn in history[-6:]:
-        contents.append(
+        base_contents.append(
             types.Content(
                 role="user",
                 parts=[types.Part.from_text(text=turn["user_message"])],
             )
         )
-        contents.append(
+        base_contents.append(
             types.Content(
                 role="model",
                 parts=[types.Part.from_text(text=turn["assistant_reply"])],
             )
         )
-    contents.append(
+    base_contents.append(
         types.Content(
             role="user", parts=[types.Part.from_text(text=user_message)]
         )
@@ -199,30 +213,40 @@ def _run_gemini(
         temperature=0.0,
     )
 
-    for _ in range(5):
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=contents,
-            config=config,
-        )
-        if not resp.function_calls:
-            return (resp.text or "").strip()
-
-        model_parts = resp.candidates[0].content.parts
-        contents.append(types.Content(role="model", parts=model_parts))
-
-        fn_response_parts = []
-        for fc in resp.function_calls:
-            args = dict(fc.args) if fc.args else {}
-            result = tool_executor(fc.name, args)
-            fn_response_parts.append(
-                types.Part.from_function_response(
-                    name=fc.name, response={"result": result}
+    last_err: Exception | None = None
+    for model_name in ("gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"):
+        contents = list(base_contents)
+        try:
+            for _ in range(5):
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
                 )
-            )
-        contents.append(types.Content(role="user", parts=fn_response_parts))
+                if not resp.function_calls:
+                    return (resp.text or "").strip()
 
-    return "I completed the requested actions."
+                model_parts = resp.candidates[0].content.parts
+                contents.append(types.Content(role="model", parts=model_parts))
+
+                fn_response_parts = []
+                for fc in resp.function_calls:
+                    args = dict(fc.args) if fc.args else {}
+                    result = tool_executor(fc.name, args)
+                    fn_response_parts.append(
+                        types.Part.from_function_response(
+                            name=fc.name, response={"result": result}
+                        )
+                    )
+                contents.append(types.Content(role="user", parts=fn_response_parts))
+            return "I completed the requested actions."
+        except Exception as exc:
+            last_err = exc
+            continue
+
+    if last_err is not None:
+        raise last_err
+    return ""
 
 
 def _run_openai_compatible(
@@ -353,6 +377,54 @@ def _run_anthropic(
 
 
 SKU_REGEX = re.compile(r"\b([A-Z]{3}-\d{4})\b", re.IGNORECASE)
+QTY_BEFORE_SKU_REGEX = re.compile(
+    r"\b(\d+)\s*(?:x|units?\s+of|pcs?\s+of|pieces?\s+of|sets?\s+of|of)?\s*([A-Z]{3}-\d{4})\b",
+    re.IGNORECASE,
+)
+SKU_BEFORE_QTY_REGEX = re.compile(
+    r"\b([A-Z]{3}-\d{4})\s*(?:x|:|-|\s+)\s*(\d+)\s*(?:units?|pcs?|pieces?|sets?)?\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_order_items(msg: str, fallback_skus: list[str]) -> list[dict]:
+    """
+    Parse one or more (sku, quantity) pairs from natural language order requests.
+    Supports patterns like:
+      - "Order 3 of BRK-1044 and 2 of FLT-2001"
+      - "Create a draft order for BRK-1044 x 4"
+      - "Please order 5 units" (using fallback_skus from session memory)
+    """
+    items_by_sku: dict[str, int] = {}
+    for qty_str, sku_str in QTY_BEFORE_SKU_REGEX.findall(msg):
+        sku = sku_str.upper()
+        items_by_sku[sku] = max(1, int(qty_str))
+
+    for sku_str, qty_str in SKU_BEFORE_QTY_REGEX.findall(msg):
+        sku = sku_str.upper()
+        if sku not in items_by_sku:
+            items_by_sku[sku] = max(1, int(qty_str))
+
+    if items_by_sku:
+        return [{"sku": s, "quantity": q} for s, q in items_by_sku.items()]
+
+    explicit_skus = [m.upper() for m in SKU_REGEX.findall(msg)]
+    qty_match = re.search(r"\b(\d+)\s*(?:units?|pcs?|pieces?|sets?|of\b)?", msg.lower())
+    qty = max(1, int(qty_match.group(1))) if qty_match else 1
+
+    if explicit_skus:
+        return [{"sku": s, "quantity": qty} for s in dict.fromkeys(explicit_skus)]
+
+    if fallback_skus:
+        lower = msg.lower()
+        idx = 0
+        if ("second" in lower or "2nd" in lower) and len(fallback_skus) >= 2:
+            idx = 1
+        elif ("third" in lower or "3rd" in lower) and len(fallback_skus) >= 3:
+            idx = 2
+        return [{"sku": fallback_skus[idx], "quantity": qty}]
+
+    return []
 
 
 def _run_deterministic_agent(
@@ -372,14 +444,20 @@ def _run_deterministic_agent(
     off_topic_keywords = [
         "weather",
         "recipe",
+        "pasta",
         "movie",
         "politics",
+        "election",
         "joke",
         "poem",
         "capital of",
         "cricket",
         "football",
         "stock market",
+        "bitcoin",
+        "crypto",
+        "homework",
+        "translate",
     ]
     if any(k in lower for k in off_topic_keywords):
         return (
@@ -388,7 +466,12 @@ def _run_deterministic_agent(
         )
 
     # 2. Greeting / capability inquiry
-    if lower in ("hi", "hello") or "what can you help" in lower or "who are you" in lower:
+    if (
+        lower in ("hi", "hello", "hey", "help")
+        or "what can you help" in lower
+        or "what do you do" in lower
+        or "who are you" in lower
+    ):
         return (
             "Hello! I am the VIKMO DealerDesk Assistant. I can help you search the "
             "two-wheeler spare parts catalogue, check live stock and prices, and create "
@@ -398,18 +481,33 @@ def _run_deterministic_agent(
     # 3. Extract explicit SKUs mentioned in current message or recent history
     explicit_skus = [m.upper() for m in SKU_REGEX.findall(msg)]
     last_cited_skus: list[str] = []
+    last_turn: dict | None = history[-1] if history else None
     for turn in reversed(history):
         if turn.get("cited_skus"):
             last_cited_skus = list(turn["cited_skus"])
             break
 
-    # 4. Check if user is asking to confirm/cancel/dispatch an order
-    if any(w in lower for w in ("confirm order", "confirm the order", "confirm it", "dispatch", "deliver")):
-        if "order" in lower or "confirm" in lower:
-            return (
-                "I can only create DRAFT orders. Confirming, dispatching, or cancelling "
-                "orders must be done through the orders API or portal."
-            )
+    # 4. Check if user is asking to confirm/cancel/dispatch/deliver an order
+    if any(
+        w in lower
+        for w in (
+            "confirm order",
+            "confirm the order",
+            "confirm my order",
+            "confirm it",
+            "confirm that",
+            "dispatch",
+            "deliver",
+            "cancel order",
+            "cancel the order",
+            "cancel my order",
+            "ship the order",
+        )
+    ):
+        return (
+            "I can only create DRAFT orders. Confirming, dispatching, delivering, or "
+            "cancelling orders must be done through the orders API or portal."
+        )
 
     # 5. Check if user wants to place/create an order
     wants_order = any(
@@ -426,40 +524,53 @@ def _run_deterministic_agent(
             "take ",
             "get me ",
             "send me ",
+            "book ",
         )
     )
     if wants_order:
-        qty_match = re.search(r"\b(\d+)\s*(?:units?|pcs?|pieces?|sets?|of\b)?", lower)
-        qty = int(qty_match.group(1)) if qty_match else 1
-        target_skus = explicit_skus or last_cited_skus[:1]
-
-        if not target_skus:
-            # Search first to find the SKU
+        items = _extract_order_items(msg, last_cited_skus)
+        if not items:
             query_clean = re.sub(
-                r"\b(please|can you|create|place|a|an|draft|order|buy|for|units?|pieces?|sets?|of|\d+)\b",
+                r"\b(please|can you|create|place|a|an|draft|order|buy|purchase|for|units?|pieces?|sets?|of|\d+)\b",
                 " ",
                 lower,
             ).strip()
             search_res = tool_executor("search_parts", {"query": query_clean})
             parts = search_res.get("parts") or []
             if parts:
-                target_skus = [parts[0]["sku"]]
+                qty_match = re.search(
+                    r"\b(\d+)\s*(?:units?|pcs?|pieces?|sets?|of\b)?", lower
+                )
+                qty = max(1, int(qty_match.group(1))) if qty_match else 1
+                items = [{"sku": parts[0]["sku"], "quantity": qty}]
 
-        if target_skus:
-            items = [{"sku": target_skus[0], "quantity": max(1, qty)}]
+        if items:
             ord_res = tool_executor("create_draft_order", {"items": items})
             if "order_number" in ord_res:
+                item_summaries = ", ".join(
+                    f"{it['quantity']}x {it['sku']}" for it in items
+                )
                 return (
-                    f"Created DRAFT order {ord_res['order_number']} for {items[0]['quantity']}x "
-                    f"{items[0]['sku']} (unit price ₹{ord_res.get('unit_price', '')}, "
+                    f"Created DRAFT order {ord_res['order_number']} for {item_summaries} "
+                    f"(unit price ₹{ord_res.get('unit_price', '')}, "
                     f"grand total ₹{ord_res.get('grand_total', '')})."
                 )
             return f"Could not create draft order: {ord_res.get('error', 'unknown error')}."
 
-    # 6. Check stock for an explicit SKU (or pronoun reference to previous SKU)
-    if explicit_skus and any(
-        w in lower for w in ("stock", "available", "how many", "price", "cost", "check", "have")
-    ):
+    # 6. Check stock / price for an explicit SKU (or pronoun reference to previous SKU)
+    stock_keywords = (
+        "stock",
+        "available",
+        "availability",
+        "how many",
+        "how much",
+        "price",
+        "cost",
+        "check",
+        "have",
+        "left",
+    )
+    if explicit_skus and any(w in lower for w in stock_keywords):
         sku = explicit_skus[0]
         st = tool_executor("check_stock", {"sku": sku})
         if st.get("found"):
@@ -470,9 +581,25 @@ def _run_deterministic_agent(
         return f"SKU {sku} was not found in our catalogue."
 
     if not explicit_skus and last_cited_skus and any(
-        w in lower for w in ("how many", "in stock", "stock", "price", "available", "what about")
+        w in lower
+        for w in (
+            "how many",
+            "how much",
+            "in stock",
+            "stock",
+            "price",
+            "cost",
+            "available",
+            "availability",
+            "what about",
+        )
     ):
-        sku = last_cited_skus[0]
+        idx = 0
+        if ("second" in lower or "2nd" in lower) and len(last_cited_skus) >= 2:
+            idx = 1
+        elif ("third" in lower or "3rd" in lower) and len(last_cited_skus) >= 3:
+            idx = 2
+        sku = last_cited_skus[idx]
         st = tool_executor("check_stock", {"sku": sku})
         if st.get("found"):
             return (
@@ -480,24 +607,57 @@ def _run_deterministic_agent(
                 f"at ₹{st['price']}."
             )
 
-    # 7. Default: search parts
-    vehicle = ""
-    part_query = msg
-    if " for " in lower:
-        idx = lower.index(" for ")
-        left = msg[:idx].strip()
-        right = msg[idx + 5 :].strip(" ?.!").strip()
-        right = re.sub(r"^(?:a|an|the|my)\s+", "", right, flags=re.IGNORECASE)
-        vehicle = right
-        part_query = re.sub(
-            r"^(?:do you have|show me|find|search for|search|looking for|need|any|what)\s+",
+    # 7. Check if this turn is answering a previous vehicle clarification question
+    if (
+        last_turn
+        and "which vehicle model" in (last_turn.get("assistant_reply") or "").lower()
+        and not explicit_skus
+    ):
+        prev_user = last_turn.get("user_message") or ""
+        prev_query = re.sub(
+            r"^(?:do you have|show me|find|search for|search|looking for|i need|need|any|what)\s+",
             "",
-            left,
+            prev_user,
             flags=re.IGNORECASE,
         ).strip(" ?.!")
+        vehicle_reply = re.sub(
+            r"^(?:for|it is for|it's for|the|a|an|my)\s+",
+            "",
+            msg,
+            flags=re.IGNORECASE,
+        ).strip(" ?.!")
+        res = tool_executor(
+            "search_parts", {"query": prev_query, "vehicle": vehicle_reply}
+        )
+        parts = res.get("parts") or []
+        if parts:
+            lines = [
+                f"- {p['name']} ({p['sku']}) — Brand: {p['brand']}, Fitment: {p['vehicle_fitment']}, "
+                f"Price: ₹{p['price']}, Stock: {p['stock']} units"
+                for p in parts[:5]
+            ]
+            return "Here are the matching parts from our catalogue:\n" + "\n".join(lines)
+
+    # 8. Default: search parts
+    vehicle = ""
+    part_query = msg
+    for sep in (" for ", " fitting ", " compatible with "):
+        if sep in lower:
+            idx = lower.index(sep)
+            left = msg[:idx].strip()
+            right = msg[idx + len(sep) :].strip(" ?.!").strip()
+            right = re.sub(r"^(?:a|an|the|my)\s+", "", right, flags=re.IGNORECASE)
+            vehicle = right
+            part_query = re.sub(
+                r"^(?:do you have|show me|find|search for|search|looking for|i need|need|any|what)\s+",
+                "",
+                left,
+                flags=re.IGNORECASE,
+            ).strip(" ?.!")
+            break
     else:
         part_query = re.sub(
-            r"^(?:do you have|show me|find|search for|search|looking for|need|any)\s+",
+            r"^(?:do you have|show me|find|search for|search|looking for|i need|need|any)\s+",
             "",
             msg,
             flags=re.IGNORECASE,

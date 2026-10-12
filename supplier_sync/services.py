@@ -16,6 +16,10 @@ from core.exceptions import SupplierUnavailableError
 
 MAX_ATTEMPTS_PER_PAGE = 5
 PAGE_LIMIT = 20
+MAX_PAGES = 500
+MAX_SYNC_DURATION_SECONDS = 110.0
+MAX_RETRY_WAIT_SECONDS = 15.0
+MAX_PRICE = Decimal("9999999999.99")
 
 
 def _validate_supplier_item(item: dict) -> tuple[bool, Decimal | None, str]:
@@ -24,9 +28,12 @@ def _validate_supplier_item(item: dict) -> tuple[bool, Decimal | None, str]:
     Invalid if missing/empty sku, or price is not a positive amount with at most 2 decimals.
     Returns (is_valid, parsed_price, reason).
     """
+    if not isinstance(item, dict):
+        return False, None, "malformed item object"
+
     sku = str(item.get("sku") or "").strip()
-    if not sku:
-        return False, None, "missing or empty sku"
+    if not sku or len(sku) > 64:
+        return False, None, "missing or invalid sku"
 
     raw_price = item.get("price")
     if raw_price is None or isinstance(raw_price, bool):
@@ -37,7 +44,7 @@ def _validate_supplier_item(item: dict) -> tuple[bool, Decimal | None, str]:
     except (InvalidOperation, ValueError, TypeError):
         return False, None, "invalid price"
 
-    if not dec.is_finite() or dec <= Decimal("0"):
+    if not dec.is_finite() or dec <= Decimal("0") or dec > MAX_PRICE:
         return False, None, "invalid price"
 
     exp = dec.as_tuple().exponent
@@ -57,9 +64,12 @@ def _parse_updated_at(ts_str: str) -> datetime:
 def run_supplier_sync(
     session: requests.Session | None = None,
     sleep_fn=time.sleep,
+    max_pages: int = MAX_PAGES,
+    max_duration_seconds: float = MAX_SYNC_DURATION_SECONDS,
 ) -> dict:
     """
     Execute one full supplier sync according to Contract §8.1–§8.3.
+    Guards against cursor loops, page floods, and deadline overruns (< 120s).
     """
     base_url = (getattr(settings, "SUPPLIER_API_URL", "") or "").rstrip("/")
     api_key = getattr(settings, "SUPPLIER_API_KEY", "") or ""
@@ -71,20 +81,42 @@ def run_supplier_sync(
     headers = {"X-Api-Key": api_key}
 
     cursor: str | None = None
+    seen_cursors: set[str] = set()
     pages_fetched = 0
     requests_made = 0
     all_raw_items: list[dict] = []
+    started_at = time.monotonic()
 
     while True:
+        if time.monotonic() - started_at > max_duration_seconds:
+            raise SupplierUnavailableError(
+                "Supplier sync exceeded the maximum allowed duration."
+            )
+        if pages_fetched >= max_pages:
+            raise SupplierUnavailableError(
+                f"Supplier feed exceeded maximum page limit ({max_pages})."
+            )
+
         params: dict[str, str | int] = {"limit": PAGE_LIMIT}
         if cursor is not None:
             params["cursor"] = cursor
 
         page_data = None
         for attempt in range(1, MAX_ATTEMPTS_PER_PAGE + 1):
+            remaining = max_duration_seconds - (time.monotonic() - started_at)
+            if remaining <= 0:
+                raise SupplierUnavailableError(
+                    "Supplier sync timed out before completing all pages."
+                )
+
             requests_made += 1
             try:
-                resp = http.get(url, params=params, headers=headers, timeout=15)
+                resp = http.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=min(15.0, max(1.0, remaining)),
+                )
             except requests.RequestException:
                 if attempt == MAX_ATTEMPTS_PER_PAGE:
                     raise SupplierUnavailableError(
@@ -98,6 +130,8 @@ def run_supplier_sync(
                     page_data = resp.json()
                 except Exception:
                     raise SupplierUnavailableError("Invalid JSON from supplier API.")
+                if not isinstance(page_data, dict):
+                    raise SupplierUnavailableError("Malformed JSON object from supplier API.")
                 pages_fetched += 1
                 break
 
@@ -111,6 +145,10 @@ def run_supplier_sync(
                     wait_seconds = max(0.0, float(retry_header))
                 except ValueError:
                     wait_seconds = 1.0
+                if wait_seconds > MAX_RETRY_WAIT_SECONDS:
+                    raise SupplierUnavailableError(
+                        f"Supplier Retry-After ({wait_seconds}s) exceeds safe threshold."
+                    )
                 sleep_fn(wait_seconds)
                 continue
 
@@ -135,7 +173,15 @@ def run_supplier_sync(
         next_cursor = page_data.get("next_cursor")
         if not next_cursor:
             break
-        cursor = str(next_cursor)
+        next_cursor_str = str(next_cursor).strip()
+        if not next_cursor_str:
+            break
+        if next_cursor_str == cursor or next_cursor_str in seen_cursors:
+            raise SupplierUnavailableError(
+                f"Supplier API returned a repeated pagination cursor '{next_cursor_str}'."
+            )
+        seen_cursors.add(next_cursor_str)
+        cursor = next_cursor_str
 
     # Step 4: Validate items and record rejected ones
     rejected: list[dict] = []
@@ -143,9 +189,14 @@ def run_supplier_sync(
     for raw in all_raw_items:
         ok, price_dec, reason = _validate_supplier_item(raw)
         if not ok or price_dec is None:
+            supplier_sku = (
+                str(raw.get("supplier_sku") or "")[:64]
+                if isinstance(raw, dict)
+                else ""
+            )
             rejected.append(
                 {
-                    "supplier_sku": str(raw.get("supplier_sku") or ""),
+                    "supplier_sku": supplier_sku,
                     "reason": reason,
                 }
             )
@@ -177,11 +228,11 @@ def run_supplier_sync(
         to_update: list[Product] = []
 
         for sku, (raw, price_dec, _) in deduped.items():
-            name = str(raw.get("name") or "").strip()
-            category = str(raw.get("category") or "").strip()
-            brand = str(raw.get("brand") or "").strip()
-            vehicle_fitment = str(raw.get("vehicle_fitment") or "").strip()
-            description = str(raw.get("description") or "")
+            name = str(raw.get("name") or "").strip()[:255]
+            category = str(raw.get("category") or "").strip()[:128]
+            brand = str(raw.get("brand") or "").strip()[:128]
+            vehicle_fitment = str(raw.get("vehicle_fitment") or "").strip()[:255]
+            description = str(raw.get("description") or "")[:10000]
 
             if sku not in existing_map:
                 to_create.append(

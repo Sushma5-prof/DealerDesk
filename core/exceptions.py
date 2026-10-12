@@ -108,7 +108,7 @@ def custom_exception_handler(exc, context):
     if response is not None:
         from rest_framework import exceptions as drf_exc
 
-        if isinstance(exc, drf_exc.ValidationError):
+        if isinstance(exc, (drf_exc.ValidationError, drf_exc.ParseError)):
             code = "VALIDATION_ERROR"
         elif isinstance(exc, drf_exc.NotFound):
             code = "NOT_FOUND"

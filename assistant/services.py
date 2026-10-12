@@ -15,10 +15,12 @@ from .llm_provider import SKU_REGEX, run_llm_turn
 
 INJECTION_PATTERNS = re.compile(
     r"(ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?"
+    r"|forget\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?"
     r"|system\s*prompt"
     r"|you\s+are\s+now\b"
     r"|disregard\s+(?:all\s+)?instructions?"
-    r"|do\s+not\s+mention)",
+    r"|do\s+not\s+mention"
+    r"|new\s+instructions?\s*:)",
     re.IGNORECASE,
 )
 
@@ -40,8 +42,12 @@ def handle_chat(data: dict) -> dict:
 
     if not session_id:
         raise ValidationError("Field 'session_id' is required.")
+    if len(session_id) > 128:
+        raise ValidationError("Field 'session_id' must be at most 128 characters.")
     if not message:
         raise ValidationError("Field 'message' is required.")
+    if len(message) > 5000:
+        raise ValidationError("Field 'message' must be at most 5000 characters.")
     if dealer_id is None or isinstance(dealer_id, bool) or not isinstance(dealer_id, int):
         raise ValidationError("Field 'dealer_id' must be a valid integer.")
 
@@ -51,10 +57,15 @@ def handle_chat(data: dict) -> dict:
     except DealerDeskError:
         raise ValidationError(f"Dealer with id '{dealer_id}' does not exist.")
 
-    session, _ = ConversationSession.objects.get_or_create(
+    session, created = ConversationSession.objects.get_or_create(
         session_id=session_id,
         defaults={"dealer_id": dealer_id},
     )
+    if not created and session.dealer_id != dealer_id:
+        raise ValidationError(
+            f"Session '{session_id}' is already bound to a different dealer."
+        )
+
     history = [
         {
             "user_message": t.user_message,
@@ -123,8 +134,9 @@ def handle_chat(data: dict) -> dict:
                         "order_number": order.order_number,
                     }
                 )
-                first_item = order.items.first()
-                for it in order.items.all():
+                items_list = list(order.items.all())
+                first_item = items_list[0] if items_list else None
+                for it in items_list:
                     touched_skus.append(it.sku)
                 return {
                     "order_number": order.order_number,
@@ -133,6 +145,14 @@ def handle_chat(data: dict) -> dict:
                     "tax_total": f"{order.tax_total:.2f}",
                     "grand_total": f"{order.grand_total:.2f}",
                     "unit_price": f"{first_item.unit_price:.2f}" if first_item else "0.00",
+                    "items": [
+                        {
+                            "sku": it.sku,
+                            "quantity": it.quantity,
+                            "unit_price": f"{it.unit_price:.2f}",
+                        }
+                        for it in items_list
+                    ],
                 }
             except DealerDeskError as exc:
                 return {"error": exc.message}
