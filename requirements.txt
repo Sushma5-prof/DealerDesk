@@ -1,0 +1,23 @@
+# VIKMO DealerDesk — requirements
+# Python 3.11+, Linux-installable. No Windows-only packages.
+#
+# numpy/scipy: floor-pinned (not exact) so pip can pick a pre-built wheel
+# on every platform — grader gets 1.26.x on Linux/Py3.11, local dev may
+# get 2.x on Windows/Py3.12. Both are ABI-compatible for our usage.
+
+# ── Core Django stack ──────────────────────────────────────────────────────────
+Django==4.2.16
+djangorestframework==3.15.2
+psycopg[binary]==3.2.3
+dj-database-url==2.3.0
+python-dotenv==1.0.1
+
+# ── HTTP ───────────────────────────────────────────────────────────────────────
+requests==2.32.3
+
+# ── LLM provider (Gemini primary; grader may use any of the four) ──────────────
+google-genai>=1.16.1,<3
+
+# ── ML / Forecasting ──────────────────────────────────────────────────────────
+numpy>=1.26,<3
+scipy>=1.13,<2
