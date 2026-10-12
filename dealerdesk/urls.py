@@ -8,7 +8,7 @@ urlpatterns = [
     # B1: Products + Inventory
     path("api/", include("catalogue.urls")),
     # B2: Dealers
-    # path("api/", include("dealers.urls")),
+    path("api/", include("dealers.urls")),
     # B3: Orders
     # path("api/", include("orders.urls")),
     # B4: Supplier sync

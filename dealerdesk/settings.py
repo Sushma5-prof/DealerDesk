@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "core",
     "catalogue",
+    "dealers",
     # add your apps here
 ]
 
