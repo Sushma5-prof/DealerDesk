@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "core",
     "catalogue",
     "dealers",
+    "orders",
     # add your apps here
 ]
 
