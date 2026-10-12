@@ -3,7 +3,7 @@
 ---
 
 ## B0 — Project Scaffold
-**Status:** PLANNING
+**Status:** COMPLETED
 **Depends on:** nothing
 
 ### Goal
@@ -49,10 +49,10 @@ scipy==1.13.1              # forecast std-dev (B6)
 - [ ] No Windows-only packages in requirements.txt
 
 ### Tests for B0
-- [ ] `python manage.py check` exits 0
-- [ ] `GET /api/health/` → `200 {"status": "ok"}`
-- [ ] `python manage.py migrate --noinput` exits 0
-- [ ] `git ls-files | grep -E '(^|/)\.env$|^venv/'` prints nothing
+- [x] `python manage.py check` exits 0
+- [x] `GET /api/health/` → `200 {"status": "ok"}`
+- [x] `python manage.py migrate --noinput` exits 0
+- [x] `git ls-files | Select-String "^\.env$|/\.env$|venv|\.venv"` prints nothing
 
 ### Verification commands
 ```bash
@@ -63,14 +63,75 @@ curl http://localhost:8000/api/health/
 ```
 
 ### Checklist
-- [ ] B0.1 Copy starter files to repo root
-- [ ] B0.2 Edit requirements.txt — pin deps + add google-genai, numpy, scipy
-- [ ] B0.3 Create ml/ dir with .gitkeep
-- [ ] B0.4 Verify .gitignore covers venv, .env, __pycache__, *.pyc, ml/forecast.csv excluded? (no — forecast.csv IS committed)
-- [ ] B0.5 pip install -r requirements.txt (sandboxed)
-- [ ] B0.6 python manage.py check
-- [ ] B0.7 python manage.py migrate --noinput
-- [ ] B0.8 Smoke: GET /api/health/ → 200
-- [ ] B0.9 git ls-files check — no .env, no venv
+- [x] B0.1 Copy starter files to repo root
+- [x] B0.2 Edit requirements.txt — pin deps + add google-genai, numpy, scipy
+- [x] B0.3 Create ml/ dir with .gitkeep
+- [x] B0.4 Verify .gitignore covers venv, .env, __pycache__, *.pyc
+- [x] B0.5 pip install -r requirements.txt
+- [x] B0.6 python manage.py check
+- [x] B0.7 python manage.py migrate --noinput
+- [x] B0.8 Smoke: GET /api/health/ → 200
+- [x] B0.9 git ls-files check — no .env, no venv
+
+### Review
+- **Built**: Project scaffold, PostgreSQL 16 on port 5433 with database `dealerdesk`, custom contract error handler (`core/exceptions.py`), standard pagination (`core/pagination.py`), URL structure, and healthy `GET /api/health/`.
+- **Verified**: System check clean, migrations applied cleanly, health endpoint returns `200 {"status": "ok"}`, git audited with no secrets.
+- **Pushed**: Pushed initial commit to GitHub remote `feature/dealerdesk-aiml` and initialized `main`.
 
 ---
+
+## B1 — Products & Inventory (§4, §5)
+**Status:** COMPLETED
+**Depends on:** B0
+
+### Goal
+Implement `catalogue` app with Product model, inventory service, REST endpoints matching API contract §4 and §5, and an idempotent `seed_data` command for `catalogue.csv`.
+
+### Checklist
+- [x] B1.1 Create `catalogue` app (`models.py`, `services.py`, `serializers.py`, `views.py`, `urls.py`)
+- [x] B1.2 Register `catalogue` in `settings.py` and `dealerdesk/urls.py`
+- [x] B1.3 Implement idempotent `bulk_create(update_conflicts=True)` in `seed_data.py`
+- [x] B1.4 Write unit and API tests in `catalogue/tests.py`
+- [x] B1.5 Run `makemigrations`, `migrate`, `seed_data` twice (600 rows), and `python manage.py test catalogue`
+
+### Review
+- **Built**: `catalogue` app with `Product` model (SKU PK, Decimal price, non-negative stock), `catalogue/services.py` (`list_products`, `get_product`, `create_product`, `update_product`, `set_inventory` using `select_for_update`), `ProductSerializer` formatting `price` as 2-dp string, and idempotent `seed_data` via `bulk_create(update_conflicts=True)`.
+- **Verified**: `seed_data` run twice produces exactly 600 products; all 4 test suites in `catalogue.tests` pass.
+- **Known limits**: None.
+
+---
+
+## B2 — Dealers (§6)
+**Status:** PLANNING
+**Depends on:** B0
+
+### Goal
+Implement `dealers` app with `Dealer` model, service layer, REST endpoints (`GET /api/dealers/`, `POST /api/dealers/`, `GET /api/dealers/{id}/`), and idempotent seeding from `data/dealers.csv` (25 dealers).
+
+### Models and Fields
+- `Dealer`:
+  - `id`: AutoField / BigAutoField (PK)
+  - `dealer_code`: CharField(max_length=64, unique=True)
+  - `name`: CharField(max_length=255)
+  - `city`: CharField(max_length=128, blank=True, default="")
+  - `phone`: CharField(max_length=64, blank=True, default="")
+  - `email`: CharField(max_length=255, blank=True, default="")
+  - `gstin`: CharField(max_length=64, blank=True, default="")
+  - `credit_limit`: DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+
+### Endpoints
+- `GET /api/dealers/` -> Paginated list of dealers
+- `POST /api/dealers/` -> `dealer_code` and `name` required, other fields optional (`credit_limit` defaults to `"0.00"`). Duplicate `dealer_code` -> `409 DUPLICATE`. Missing required -> `400 VALIDATION_ERROR`.
+- `GET /api/dealers/{id}/` -> `200` dealer object or `404 NOT_FOUND`.
+
+### Files to create / change
+- `dealers/` (`__init__.py`, `apps.py`, `models.py`, `services.py`, `serializers.py`, `views.py`, `urls.py`, `tests.py`)
+- `dealerdesk/settings.py`: add `"dealers"` to `INSTALLED_APPS`
+- `dealerdesk/urls.py`: uncomment `path("api/", include("dealers.urls"))`
+- `core/management/commands/seed_data.py`: add `_seed_dealers` loading `data/dealers.csv` idempotently
+
+### Verification commands
+- `python manage.py makemigrations dealers && python manage.py migrate`
+- `python manage.py seed_data` (twice -> 25 dealers, 600 products)
+- `python manage.py test catalogue dealers`
+

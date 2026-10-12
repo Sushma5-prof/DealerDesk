@@ -6,7 +6,7 @@ urlpatterns = [
     # Core: health check
     path("api/", include("core.urls")),
     # B1: Products + Inventory
-    # path("api/", include("catalogue.urls")),
+    path("api/", include("catalogue.urls")),
     # B2: Dealers
     # path("api/", include("dealers.urls")),
     # B3: Orders

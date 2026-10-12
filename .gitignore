@@ -16,10 +16,11 @@ venv/
 env/
 ENV/
 
-# Django
+# Django / Local DB
 *.log
 local_settings.py
 db.sqlite3
+.pgdata/
 media/
 staticfiles/
 
