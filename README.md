@@ -22,7 +22,7 @@ A Django REST API, GenAI Dealer Assistant, ML Demand Forecaster, Supplier Sync c
 
 ## Video Walkthrough
 
-- **5-Minute Video Link:** *(Add your unlisted YouTube / Loom / Google Drive link here before submitting)*
+- **Walkthrough Video Link:** [Google Drive Video](https://drive.google.com/file/d/1dvpM5ovv3DT39kTRkPvy4ocLdPLbbNon/view?usp=drive_link)
 
 ---
 
